@@ -1,0 +1,342 @@
+# ============================================================================
+# soft-robotics-tracker — targeting.yaml
+# ----------------------------------------------------------------------------
+# Single source of truth for WHAT to look for and WHERE to look.
+# Every source adapter reads this; the relevance/quality gate reads the
+# vocabulary + scoring blocks. Tune precision vs. recall here, not in code.
+#
+# Gate design (differs from Polymind's two-axis AI×materials gate): soft/
+# humanoid robotics is a single domain anchor, and news like "humanoid
+# breakthrough" carries no materials keyword. So the keyword gate is
+# SINGLE-AXIS — a candidate must hit >=1 robotics_term. materials_boost_terms
+# raise the score (materials-scientist focus); the LLM rubric is the fine filter.
+#
+# One thing to check on first run: verify each feed URL under sources.* (feeds
+# drift; the adapter logs any that 404/403 so you can prune them). Lines marked
+# `# verify` are best-effort patterns most likely to need a check.
+# ============================================================================
+
+meta:
+  lookback_hours: 168         # API-fetch window (7 days) — matches the weekly run cadence
+  # Hard freshness ceiling applied to EVERY source (incl. RSS feeds, which carry no date
+  # filter of their own): drop any candidate whose publication date is older than this before
+  # it is scored or stored. Items with no publication date pass (they were just fetched).
+  max_age_days: 30
+  timezone: America/Los_Angeles
+  contact_email: "tengteng3254@gmail.com"
+
+# ----------------------------------------------------------------------------
+# SITE IDENTITY — strings used in the header, <title>/meta tags, and RSS feed
+# ----------------------------------------------------------------------------
+site:
+  name: "SoftRobotics Intelligence"
+  tagline: "Soft & humanoid robotics for materials scientists & engineers"
+  description: >-
+    A weekly feed plus synthesis of breakthroughs in soft and humanoid robotics
+    — actuator materials, tactile skins, self-healing, fabrication, and the
+    material requirements and jobs at the polymer/robotics frontier.
+  url: "https://lema-3254.github.io/soft-robotics-agent/"   # GitHub Pages project URL; custom domain later
+  feed_days: 30                                  # home feed + RSS show only items this recent; the Archive keeps everything
+
+# ----------------------------------------------------------------------------
+# TARGETING VOCABULARY
+# Match rule (applied by adapters that support keyword filtering — arXiv,
+# journal/press RSS, Google News): an item is a CANDIDATE if it hits >=1
+# robotics_term (single-axis gate). materials_boost_terms raise the relevance
+# score later. exclude_terms hard-drop obvious off-topic matches before the LLM.
+# Keep excludes conservative — the LLM rubric is the real filter; this just
+# saves tokens on clear noise.
+# ----------------------------------------------------------------------------
+targeting:
+  robotics_terms:             # THE GATE — candidate must hit >=1 of these
+    # soft robotics core
+    - soft robot
+    - soft robotics
+    - soft robotic
+    - soft actuator
+    - artificial muscle
+    - pneumatic actuator
+    - dielectric elastomer actuator
+    - compliant mechanism
+    - variable stiffness
+    - morphing structure
+    - bio-inspired robot
+    - bioinspired robot
+    - biomimetic robot
+    # humanoid & general robotics
+    - humanoid
+    - humanoid robot
+    - legged robot
+    - bipedal
+    - quadruped
+    - robot
+    - robotic
+    - robotics
+    # manipulation / limbs / wearables
+    - robotic hand
+    - robot hand
+    - robotic gripper
+    - soft gripper
+    - dexterous manipulation
+    - end effector
+    - exoskeleton
+    - prosthetic
+    - prosthesis
+    - wearable robot
+    - teleoperation
+    # sensing / skin
+    - tactile sensing
+    - tactile skin
+    - electronic skin
+    - e-skin
+    - robot skin
+
+  materials_boost_terms:      # +score; strongest materials signals for a materials-scientist audience
+    - elastomer
+    - silicone
+    - PDMS
+    - Ecoflex
+    - Dragon Skin
+    - hydrogel
+    - liquid crystal elastomer
+    - shape-memory polymer
+    - shape memory
+    - dielectric elastomer
+    - ionic gel
+    - ionogel
+    - conductive elastomer
+    - conductive polymer
+    - self-healing
+    - dynamic covalent
+    - vitrimer
+    - stretchable electronics
+    - stretchable
+    - piezoresistive
+    - piezoelectric
+    - triboelectric
+    - magnetorheological
+    - direct ink writing
+    - multi-material 3D printing
+    - additive manufacturing
+    - pneumatic network
+    - polymer
+    - composite
+
+  exclude_terms:              # hard-drop clearly off-scope matches (kept conservative)
+    - autonomous driving
+    - self-driving car
+    - stock market
+    - cryptocurrency
+    - box office
+    - sports betting
+
+  # Fixed theme taxonomy — the scoring model MUST tag each kept item with exactly one of these
+  # labels (or "Other"). Collapses the guide's 10 topic areas into 8 consistent feed themes.
+  themes:
+    - Humanoid Robotics
+    - Soft Robotics Research
+    - Actuator Materials
+    - Soft Skin & Tactile Sensing
+    - Durability & Self-Healing
+    - Fabrication & Manufacturing
+    - HRI & Safety
+    - Applications
+
+# ----------------------------------------------------------------------------
+# SOURCES — Tier A (curated firehoses): poll, take all new, then filter
+# ----------------------------------------------------------------------------
+sources:
+
+  arxiv:
+    enabled: true
+    tier: A
+    api_base: "http://export.arxiv.org/api/query"   # stable; RSS alt: https://rss.arxiv.org/rss/<cat>
+    categories:
+      - cs.RO                 # robotics
+      - cond-mat.soft         # soft condensed matter (elastomers, gels, soft matter)
+      - eess.SY               # systems & control (actuation, compliant control)
+    # logic: pull new submissions per category, keep those whose title/abstract
+    # satisfy the single-axis robotics gate above.
+    filter_with_vocabulary: true
+
+  openalex:
+    enabled: true
+    tier: A
+    api_base: "https://api.openalex.org/works"
+    # OpenAlex `search` covers title+abstract+fulltext. Combine with a date filter.
+    search: "(soft robot OR soft robotics OR humanoid robot OR soft actuator OR artificial muscle OR dielectric elastomer OR tactile skin OR electronic skin OR soft gripper OR exoskeleton OR prosthetic hand) AND (elastomer OR hydrogel OR polymer OR silicone OR shape memory OR self-healing OR stretchable OR composite)"
+    filters:
+      from_publication_date: "{lookback_date}"   # adapter fills from lookback_hours
+    per_page: 200
+    mailto_from_meta: true
+
+  crossref:
+    enabled: true
+    tier: A
+    api_base: "https://api.crossref.org/works"
+    query: "soft robotics humanoid actuator elastomer hydrogel tactile skin self-healing prosthetic exoskeleton"
+    filters:
+      from-pub-date: "{lookback_date}"
+      type: "journal-article"
+    rows: 100
+
+  journal_rss:               # venue = quality filter; take all, gate by robotics vocabulary
+    enabled: true
+    tier: A
+    feeds:
+      - name: "Science Robotics"
+        url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=scirobotics"   # verify
+      - name: "Science Advances"
+        url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=sciadv"          # verify
+      - name: "Soft Robotics (Mary Ann Liebert)"
+        url: "https://www.liebertpub.com/action/showFeed?type=etoc&feed=rss&jc=soro"          # verify
+      - name: "Nature Machine Intelligence"
+        url: "https://www.nature.com/natmachintell.rss"
+      - name: "Advanced Materials"
+        url: "https://onlinelibrary.wiley.com/action/showFeed?jc=15214095&type=etoc&feed=rss" # verify
+      - name: "Advanced Functional Materials"
+        url: "https://onlinelibrary.wiley.com/action/showFeed?jc=16163028&type=etoc&feed=rss" # verify
+      - name: "Bioinspiration & Biomimetics (IOP)"
+        url: "https://iopscience.iop.org/journal/rss/1748-3190"                               # verify
+    disabled_feeds:
+      - name: "ACS Nano"
+        url: "https://pubs.acs.org/action/showFeed?type=etoc&feed=rss&jc=ancac3"
+        reason: "ACS RSS returns HTTP 403 in Polymind live smoke tests; revisit before enabling."
+      - name: "IEEE Transactions on Robotics"
+        reason: "No stable public RSS; covered via OpenAlex/Crossref instead."
+
+  # -- Tier C: university & institute press rooms (broad — leans on the vocabulary gate) --
+  university_news:
+    enabled: true
+    tier: C
+    feeds:
+      - name: "MIT News — Robotics"
+        url: "https://news.mit.edu/rss/topic/robotics"
+      - name: "MIT News"
+        url: "https://news.mit.edu/rss/feed"
+      - name: "Harvard Wyss Institute"
+        url: "https://wyss.harvard.edu/feed/"
+      - name: "Stanford News"
+        url: "https://news.stanford.edu/feed/"                                                # verify
+      - name: "CMU Robotics Institute"
+        url: "https://www.ri.cmu.edu/feed/"                                                   # verify
+      - name: "Georgia Tech Research News"
+        url: "https://research.gatech.edu/rss.xml"
+      - name: "ETH Zurich News"
+        url: "https://ethz.ch/en/news-and-events/eth-news/_jcr_content.rss"                   # verify
+
+  # -- Tier C: robotics trade & tech news (topic feeds; vocabulary-gated) --
+  web_news:
+    enabled: true
+    tier: C
+    feeds:
+      - name: "IEEE Spectrum — Robotics"
+        url: "https://spectrum.ieee.org/feeds/topic/robotics.rss"                             # verify
+      - name: "The Robot Report"
+        url: "https://www.therobotreport.com/feed/"
+      - name: "TechCrunch — Robotics"
+        url: "https://techcrunch.com/tag/robotics/feed/"                                      # verify
+      - name: "Wired — Robotics"
+        url: "https://www.wired.com/feed/tag/robotics/latest/rss"                             # verify
+
+  # -- Tier C: open web / news (query mode — noisy, leans on the gate) --
+  google_news:
+    enabled: true
+    tier: C
+    rss_template: "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en"
+    queries:
+      # the guide's 10 topic-area queries
+      - "humanoid robot breakthrough"
+      - "soft robotics research breakthrough"
+      - "soft actuator elastomer hydrogel polymer robot"
+      - "robot soft skin tactile sensor stretchable material"
+      - "soft robot material durability self-healing"
+      - "soft robot 3D printing fabrication manufacturing"
+      - "humanoid robot safety compliant soft material"
+      - "soft robot medical prosthetics industrial application"
+      - "materials scientist materials engineer robotics"
+      - "soft robotics humanoid polymer journal paper"
+      # per-company / press-release targets (these firms lack usable RSS)
+      - "Tesla Optimus humanoid robot"
+      - "Figure AI humanoid robot"
+      - "Boston Dynamics Atlas robot"
+      - "1X Technologies NEO robot"
+      - "Agility Robotics Digit"
+      - "Apptronik Apollo robot"
+      - "Unitree humanoid robot"
+      - "Sanctuary AI Phoenix robot"
+      - "Physical Intelligence robot foundation model"
+      - "Festo bionic soft robot"
+
+  # -- Company blogs mostly lack clean RSS; they enter via google_news above. Disabled. --
+  org_blogs:
+    enabled: false
+    tier: B
+    feeds: []
+
+  # -- Tier D: social (build last) --
+  social:
+    enabled: false
+
+# ----------------------------------------------------------------------------
+# SCORING GATE — Claude relevance + quality scoring
+# ----------------------------------------------------------------------------
+scoring:
+  model: "claude-haiku-4-5-20251001"   # cheap scoring
+  rubric_prompt: "prompts/relevance.md"
+  scale: 100                            # scores are 0–100
+  max_candidates: 80                    # cap items sent to the model per run (speed + cost)
+  min_score: 70                         # keep items (by relevance) >= this; tune to land ~20 quality/week
+  # "High signal" featured section requires BOTH bars: relevance >= high_relevance_score AND
+  # quality >= high_quality_score. The per-card score badge highlights on relevance >= high_relevance_score.
+  high_relevance_score: 80
+  high_quality_score: 80
+
+# ----------------------------------------------------------------------------
+# ENRICHMENT — concise item summaries after scoring + dedup
+# ----------------------------------------------------------------------------
+enrich:
+  model: "claude-sonnet-4-5-20250929"   # stronger tier for user-facing summaries
+  prompt: "prompts/enrich.md"
+  max_items_per_run: 25                  # cost cap; ~enough for the weekly quality set
+
+# ----------------------------------------------------------------------------
+# WEEKLY SYNTHESIS — trend narrative over the week's included items
+# ----------------------------------------------------------------------------
+synth:
+  model: "claude-sonnet-4-5-20250929"   # stronger tier for weekly synthesis
+  prompt: "prompts/synth.md"
+
+# ----------------------------------------------------------------------------
+# WEEKLY SECTIONS — LLM web-search stages unique to this tracker (run weekly).
+# These need live web knowledge (not RSS), so they use the Anthropic server-side
+# web_search tool rather than the feed pipeline.
+#   - material_requirements: stored in SQLite and rendered on the site (materials.html)
+#   - job_openings: written to a date-stamped Word doc in output/, uploaded as a downloadable
+#     Actions artifact (never committed, never on the public site)
+# ----------------------------------------------------------------------------
+sections:
+  material_requirements:
+    enabled: true
+    model: "claude-sonnet-4-5-20250929"
+    prompt: "prompts/material_requirements.md"
+    max_searches: 6                      # web_search tool-use budget
+  job_openings:
+    enabled: true
+    model: "claude-sonnet-4-5-20250929"
+    prompt: "prompts/jobs.md"
+    max_searches: 8
+    output_dir: "output"                 # weekly Word doc lands here (gitignored; uploaded as an Actions artifact)
+
+# ----------------------------------------------------------------------------
+# DEDUP / NOVELTY — the "don't repeat" layer
+# ----------------------------------------------------------------------------
+dedup:
+  # Local embeddings by default (CPU fastembed / ONNX, no PyTorch) so only the Anthropic key is required.
+  # To use Voyage instead: set embedding_provider: voyage and embedding_model: voyage-3 (needs VOYAGE_API_KEY).
+  # Provider is inferred from the model name when embedding_provider is unset (voyage* => Voyage, else local).
+  embedding_provider: "local"
+  embedding_model: "BAAI/bge-small-en-v1.5"
+  similarity_threshold: 0.85            # >= this vs. 30-day memory => duplicate
+  window_days: 30                       # rolling memory horizon
+  on_duplicate: "drop"                  # or "tag_as_update"
