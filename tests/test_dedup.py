@@ -39,6 +39,17 @@ class DedupTests(unittest.TestCase):
         self.assertEqual(item.status, "dropped_dup")
         self.assertEqual(item.dup_of, "existing")
 
+    def test_deduplicate_does_not_self_collide_with_memory(self):
+        # A re-fetched item whose own id is already in the 30-day memory must NOT be dropped as a
+        # duplicate of itself (regression: this demoted included items to dropped_dup on re-runs).
+        item = make_item("Recurring soft robot item", [1.0, 0.0])
+        config = {"dedup": {"similarity_threshold": 0.85, "on_duplicate": "drop"}}
+
+        deduplicate_items([item], [{"id": item.id, "embedding": [1.0, 0.0]}], config)
+
+        self.assertEqual(item.status, "included")
+        self.assertIsNone(item.dup_of)
+
     def test_deduplicate_items_tracks_current_run_memory(self):
         first = make_item("First polymer item", [1.0, 0.0])
         second = make_item("Second polymer item", [1.0, 0.0])

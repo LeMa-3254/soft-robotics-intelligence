@@ -37,7 +37,11 @@ def deduplicate_items(
         if item.status != "included" or not item.embedding:
             continue
 
-        duplicate_id = find_duplicate_id(item.embedding, seen, threshold)
+        # Never let an item collide with its OWN prior embedding: the same story is re-fetched
+        # every run while it's inside the lookback window, and its id is still in the 30-day memory.
+        # Comparing it to itself (cosine ~1.0) would demote an already-included item to a duplicate.
+        candidates = [row for row in seen if row["id"] != item.id]
+        duplicate_id = find_duplicate_id(item.embedding, candidates, threshold)
         if duplicate_id:
             item.dup_of = duplicate_id
             if on_duplicate == "tag_as_update":
