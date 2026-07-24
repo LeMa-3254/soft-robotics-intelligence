@@ -288,7 +288,7 @@ scoring:
   model: "claude-haiku-4-5-20251001"   # cheap scoring
   rubric_prompt: "prompts/relevance.md"
   scale: 100                            # scores are 0–100
-  max_candidates: 80                    # cap items sent to the model per run (speed + cost)
+  max_candidates: 200                   # cap items sent to the model per run (speed + cost); raised 80->200 for recall
   min_score: 70                         # keep items (by relevance) >= this; tune to land ~20 quality/week
   # "High signal" featured section requires BOTH bars: relevance >= high_relevance_score AND
   # quality >= high_quality_score. The per-card score badge highlights on relevance >= high_relevance_score.
