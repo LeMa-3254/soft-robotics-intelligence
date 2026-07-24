@@ -188,8 +188,6 @@ sources:
         url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=scirobotics"   # verify
       - name: "Science Advances"
         url: "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=sciadv"          # verify
-      - name: "Soft Robotics (Mary Ann Liebert)"
-        url: "https://www.liebertpub.com/action/showFeed?type=etoc&feed=rss&jc=soro"          # verify
       - name: "Nature Machine Intelligence"
         url: "https://www.nature.com/natmachintell.rss"
       - name: "Advanced Materials"
@@ -204,6 +202,9 @@ sources:
         reason: "ACS RSS returns HTTP 403 in Polymind live smoke tests; revisit before enabling."
       - name: "IEEE Transactions on Robotics"
         reason: "No stable public RSS; covered via OpenAlex/Crossref instead."
+      - name: "Soft Robotics (Mary Ann Liebert)"
+        url: "https://www.liebertpub.com/action/showFeed?type=etoc&feed=rss&jc=soro"
+        reason: "Liebert RSS 404/403 in the first live run; the journal is still covered via OpenAlex/Crossref."
 
   # -- Tier C: university & institute press rooms (broad — leans on the vocabulary gate) --
   university_news:
@@ -211,19 +212,21 @@ sources:
     tier: C
     feeds:
       - name: "MIT News — Robotics"
-        url: "https://news.mit.edu/rss/topic/robotics"
+        url: "https://news.mit.edu/topic/mitrobotics-rss.xml"
       - name: "MIT News"
         url: "https://news.mit.edu/rss/feed"
       - name: "Harvard Wyss Institute"
         url: "https://wyss.harvard.edu/feed/"
-      - name: "Stanford News"
-        url: "https://news.stanford.edu/feed/"                                                # verify
       - name: "CMU Robotics Institute"
-        url: "https://www.ri.cmu.edu/feed/"                                                   # verify
+        url: "https://www.ri.cmu.edu/feed/"
       - name: "Georgia Tech Research News"
         url: "https://research.gatech.edu/rss.xml"
+    disabled_feeds:                        # ignored by the adapter; kept as documentation
+      - name: "Stanford News"
+        url: "https://news.stanford.edu/feed/"
+        reason: "HTTP 403 (blocks the CI runner) in the first live run; revisit with a working feed."
       - name: "ETH Zurich News"
-        url: "https://ethz.ch/en/news-and-events/eth-news/_jcr_content.rss"                   # verify
+        reason: "No working public RSS found (candidate URLs 404 in the first live run); revisit."
 
   # -- Tier C: robotics trade & tech news (topic feeds; vocabulary-gated) --
   web_news:
@@ -231,13 +234,13 @@ sources:
     tier: C
     feeds:
       - name: "IEEE Spectrum — Robotics"
-        url: "https://spectrum.ieee.org/feeds/topic/robotics.rss"                             # verify
+        url: "https://spectrum.ieee.org/feeds/topic/robotics.rss"
       - name: "The Robot Report"
         url: "https://www.therobotreport.com/feed/"
       - name: "TechCrunch — Robotics"
-        url: "https://techcrunch.com/tag/robotics/feed/"                                      # verify
-      - name: "Wired — Robotics"
-        url: "https://www.wired.com/feed/tag/robotics/latest/rss"                             # verify
+        url: "https://techcrunch.com/tag/robotics/feed/"
+      - name: "Wired — Science"
+        url: "https://www.wired.com/feed/category/science/latest/rss"   # no robotics tag feed; robotics items pass the vocab gate
 
   # -- Tier C: open web / news (query mode — noisy, leans on the gate) --
   google_news:

@@ -76,7 +76,7 @@ jobs:
           fi
 
       - name: Upload Open Positions Word doc
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: open-positions
           path: output/*.docx
