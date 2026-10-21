@@ -126,9 +126,14 @@ class PipelineRunTests(unittest.TestCase):
                 source_name="E", tier="A", abstract="stainless steel weld optimization",
             )
             offtopic.status = "included"
+            duplicate = Item.from_source(
+                title="Soft robotic actuator with elastomer (repost)", url="https://x/p2", source_type="t",
+                source_name="E", tier="A", abstract="soft robot actuator using elastomer",
+            )
+            duplicate.status = "dropped_dup"
             with connect(db_path) as db:
                 init_db(db)
-                upsert_items(db, [robotics, offtopic])
+                upsert_items(db, [robotics, offtopic, duplicate])
 
             pipeline_run.rescore_archive(config_path=str(config_path), db_path=str(db_path), weekly_synthesis=False)
 
@@ -136,6 +141,70 @@ class PipelineRunTests(unittest.TestCase):
                 statuses = dict(db.execute("SELECT title, status FROM items"))
             self.assertEqual(statuses["Soft robotic actuator with elastomer"], "included")
             self.assertEqual(statuses["Machine learning for steel welding"], "dropped_lowscore")
+            # would score as included, but a duplicate must stay a duplicate
+            self.assertEqual(statuses["Soft robotic actuator with elastomer (repost)"], "dropped_dup")
+
+    def test_rescore_archive_reenriches_fallback_why_it_matters(self):
+        from unittest.mock import patch
+
+        from pipeline.enrich import FALLBACK_WHY_IT_MATTERS
+        from store.db import init_db, upsert_items
+
+        class FakeModelClient:
+            def complete_json(self, **kwargs):
+                return {
+                    "relevance": 90, "quality": 80, "theme": "Actuators", "reason": "r",
+                    "summary": "Model summary.", "why_it_matters": "Model why.",
+                }, {}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "targeting.yaml"
+            db_path = root / "tracker.db"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "site: {name: SoftRobotics Intelligence, description: d, url: https://x/}",
+                        "targeting: {robotics_terms: [soft robot], exclude_terms: [], materials_boost_terms: []}",
+                        "scoring: {model: m, min_score: 70}",
+                        "enrich: {model: m, max_items_per_run: 1}",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            stale = []
+            for index in range(2):
+                item = Item.from_source(
+                    title=f"Soft robot gripper {index}", url=f"https://x/{index}", source_type="t",
+                    source_name="E", tier="A", abstract="soft robot gripper",
+                )
+                item.status = "included"
+                item.summary = item.abstract
+                item.why_it_matters = FALLBACK_WHY_IT_MATTERS
+                stale.append(item)
+            written = Item.from_source(
+                title="Soft robot skin", url="https://x/skin", source_type="t",
+                source_name="E", tier="A", abstract="soft robot skin",
+            )
+            written.status = "included"
+            written.summary = "Earlier summary."
+            written.why_it_matters = "Earlier why."
+            with connect(db_path) as db:
+                init_db(db)
+                upsert_items(db, [*stale, written])
+
+            client = FakeModelClient()
+            with patch("pipeline.score.build_anthropic_client", return_value=client), patch(
+                "pipeline.enrich.build_anthropic_client", return_value=client
+            ):
+                pipeline_run.rescore_archive(config_path=str(config_path), db_path=str(db_path), weekly_synthesis=False)
+
+            with connect(db_path) as db:
+                why = dict(db.execute("SELECT title, why_it_matters FROM items"))
+            # both stale items are backfilled despite max_items_per_run: 1
+            self.assertEqual(why["Soft robot gripper 0"], "Model why.")
+            self.assertEqual(why["Soft robot gripper 1"], "Model why.")
+            self.assertEqual(why["Soft robot skin"], "Earlier why.")
 
 
 if __name__ == "__main__":

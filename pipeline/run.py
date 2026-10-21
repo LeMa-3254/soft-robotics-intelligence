@@ -13,7 +13,7 @@ from config import load_config
 from models import Item
 from pipeline.dedup import deduplicate_items
 from pipeline.embeddings import embed_items
-from pipeline.enrich import enrich_items
+from pipeline.enrich import FALLBACK_WHY_IT_MATTERS, enrich_items
 from pipeline.ingest import ingest_enabled_sources
 from pipeline.jobs_doc import write_jobs_doc
 from pipeline.score import score_item
@@ -163,15 +163,22 @@ def rescore_archive(
     """One-time maintenance: re-score every stored item against the current rubric.
 
     Drops items that no longer pass and reassigns the theme, so a targeting change applies
-    to the whole archive (not just newly fetched items). Preserves existing summaries,
-    why-it-matters text, and embeddings."""
+    to the whole archive (not just newly fetched items). Duplicates are left untouched, since
+    scoring would overwrite their status. Preserves model-written summaries, why-it-matters
+    text, and embeddings; included items still carrying the fallback why-it-matters (e.g. from
+    a model outage) are re-enriched, uncapped."""
     config = load_config(config_path)
     token_usage: dict = {}
     with connect(db_path) as db:
         init_db(db)
-        rows = list(db.execute("SELECT * FROM items"))
+        rows = list(db.execute("SELECT * FROM items WHERE status != 'dropped_dup'"))
         before = sum(1 for row in rows if row["status"] == "included")
         rescored = [score_item(item_from_row(row), config, token_usage=token_usage) for row in rows]
+        stale = [
+            item for item in rescored
+            if item.status == "included" and item.why_it_matters in (None, FALLBACK_WHY_IT_MATTERS)
+        ]
+        enrich_items(stale, config, token_usage=token_usage, limit=len(stale))
         upsert_items(db, rescored)
         after = sum(1 for item in rescored if item.status == "included")
         if weekly_synthesis:
@@ -187,7 +194,12 @@ def rescore_archive(
             )
         log_run(
             db,
-            counts={"rescored": len(rows), "included_before": before, "included_after": after},
+            counts={
+                "rescored": len(rows),
+                "included_before": before,
+                "included_after": after,
+                "reenriched": len(stale),
+            },
             token_usage=token_usage,
         )
     return 0

@@ -6,6 +6,8 @@ from typing import Any
 from models import Item
 from pipeline.model_clients import add_token_usage, build_anthropic_client, read_prompt
 
+FALLBACK_WHY_IT_MATTERS = "Potentially relevant to soft & humanoid robotics and materials development."
+
 
 def enrich_items(
     items: list[Item],
@@ -13,8 +15,10 @@ def enrich_items(
     *,
     model_client: Any | None = None,
     token_usage: dict[str, Any] | None = None,
+    limit: int | None = None,
 ) -> list[Item]:
-    limit = config.get("enrich", {}).get("max_items_per_run", 40)
+    if limit is None:
+        limit = config.get("enrich", {}).get("max_items_per_run", 40)
     client = model_client if model_client is not None else build_anthropic_client()
     for item in items:
         if not item.summary or not item.why_it_matters:
@@ -50,16 +54,13 @@ def enrich_item_with_model(
     )
     add_token_usage(token_usage, "anthropic_enrichment", usage)
     item.summary = str(result.get("summary") or item.abstract or item.title)
-    item.why_it_matters = str(
-        result.get("why_it_matters")
-        or "Potentially relevant to soft & humanoid robotics and materials development."
-    )
+    item.why_it_matters = str(result.get("why_it_matters") or FALLBACK_WHY_IT_MATTERS)
     return item
 
 
 def bootstrap_enrich_item(item: Item) -> Item:
     item.summary = item.abstract or item.title
-    item.why_it_matters = "Potentially relevant to soft & humanoid robotics and materials development."
+    item.why_it_matters = FALLBACK_WHY_IT_MATTERS
     return item
 
 
