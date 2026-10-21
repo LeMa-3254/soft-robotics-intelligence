@@ -60,6 +60,13 @@ def extract_message_text(message: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def check_not_truncated(message: Any, max_tokens: int) -> None:
+    """A response cut off at max_tokens holds incomplete JSON; say so instead of letting it
+    surface as a vague parse error."""
+    if getattr(message, "stop_reason", None) == "max_tokens":
+        raise ValueError(f"Model response truncated at max_tokens={max_tokens}")
+
+
 def anthropic_usage(message: Any) -> dict[str, int]:
     usage = getattr(message, "usage", None)
     if usage is None:
@@ -116,6 +123,7 @@ class AnthropicModelClient:
                 messages=[{"role": "user", "content": user_prompt}],
             )
         )
+        check_not_truncated(message, max_tokens)
         return parse_json_object(extract_message_text(message)), anthropic_usage(message)
 
     def search_json(
@@ -145,6 +153,7 @@ class AnthropicModelClient:
                 }],
             )
         )
+        check_not_truncated(message, max_tokens)
         return parse_json_object(extract_message_text(message)), anthropic_usage(message)
 
 

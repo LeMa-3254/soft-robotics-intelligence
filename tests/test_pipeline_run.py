@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -205,6 +206,53 @@ class PipelineRunTests(unittest.TestCase):
             self.assertEqual(why["Soft robot gripper 0"], "Model why.")
             self.assertEqual(why["Soft robot gripper 1"], "Model why.")
             self.assertEqual(why["Soft robot skin"], "Earlier why.")
+
+    def test_resynthesize_archive_regenerates_every_stored_week(self):
+        from unittest.mock import patch
+
+        from store.db import init_db, upsert_items, upsert_weekly_summary
+
+        class FakeModelClient:
+            def complete_json(self, **kwargs):
+                return {"synthesis_md": "## This week in brief\n\nModel narrative."}, {"output_tokens": 7}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "targeting.yaml"
+            db_path = root / "tracker.db"
+            config_path.write_text(
+                "site: {name: SoftRobotics Intelligence, description: d, url: https://x/}\nsynth: {model: m}\n",
+                encoding="utf-8",
+            )
+            weeks = [("2026-09-07", "2026-09-13"), ("2026-09-14", "2026-09-20")]
+            items = []
+            for index, (week_start, _week_end) in enumerate(weeks):
+                item = Item.from_source(
+                    title=f"Soft robot item {index}", url=f"https://x/{index}", source_type="t",
+                    source_name="E", tier="A", abstract="soft robot", published_date=week_start,
+                )
+                item.status = "included"
+                items.append(item)
+            with connect(db_path) as db:
+                init_db(db)
+                upsert_items(db, items)
+                for week_start, week_end in weeks:
+                    upsert_weekly_summary(
+                        db, week_start=week_start, week_end=week_end, synthesis_md="old fallback", item_ids=[],
+                    )
+
+            with patch("pipeline.synth.build_anthropic_client", return_value=FakeModelClient()):
+                pipeline_run.resynthesize_archive(config_path=str(config_path), db_path=str(db_path))
+
+            with connect(db_path) as db:
+                summaries = list(db.execute("SELECT synthesis_md, item_ids FROM weekly_summaries"))
+                run = db.execute("SELECT counts_json, token_usage_json FROM runs").fetchone()
+            self.assertEqual(len(summaries), 2)
+            for synthesis_md, item_ids in summaries:
+                self.assertIn("Model narrative.", synthesis_md)
+                self.assertEqual(len(json.loads(item_ids)), 1)
+            self.assertIn('"resynthesized": 2', run["counts_json"])
+            self.assertIn("anthropic_synthesis", run["token_usage_json"])
 
 
 if __name__ == "__main__":

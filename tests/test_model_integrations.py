@@ -8,6 +8,7 @@ from pipeline.enrich import enrich_items
 from pipeline.model_clients import (
     AnthropicModelClient,
     add_token_usage,
+    check_not_truncated,
     parse_json_object,
     resolve_embedding_provider,
     strip_code_fence,
@@ -180,6 +181,11 @@ class ModelIntegrationTests(unittest.TestCase):
         add_token_usage(usage, "anthropic_scoring", {"input_tokens": 3})
 
         self.assertEqual(usage, {"anthropic_scoring": {"input_tokens": 5}})
+
+    def test_check_not_truncated_rejects_max_tokens_stop(self):
+        check_not_truncated(SimpleNamespace(stop_reason="end_turn"), 100)
+        with self.assertRaisesRegex(ValueError, "truncated at max_tokens=100"):
+            check_not_truncated(SimpleNamespace(stop_reason="max_tokens"), 100)
 
 
 class AnthropicSdkCompatibilityTests(unittest.TestCase):

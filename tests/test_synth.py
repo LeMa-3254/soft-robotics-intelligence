@@ -37,6 +37,22 @@ class SynthTests(unittest.TestCase):
         self.assertIn("Model Synthesis", markdown)
         self.assertEqual(token_usage["anthropic_synthesis"]["input_tokens"], 4)
 
+    def test_synthesize_week_records_model_error_and_falls_back(self):
+        class FailingModelClient:
+            def complete_json(self, **kwargs):
+                raise ValueError("Model response truncated at max_tokens=8000")
+
+        errors = []
+        markdown = synthesize_week(
+            [{"id": "1", "title": "Polymer item", "theme": "materials AI"}],
+            {"synth": {"model": "test-synth-model", "prompt": "prompts/synth.md"}},
+            model_client=FailingModelClient(),
+            errors=errors,
+        )
+
+        self.assertIn("## Trends by theme", markdown)
+        self.assertEqual(errors, ["synthesis: Model response truncated at max_tokens=8000"])
+
 
 if __name__ == "__main__":
     unittest.main()

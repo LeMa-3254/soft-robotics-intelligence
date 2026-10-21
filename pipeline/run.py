@@ -29,6 +29,7 @@ from store.db import (
     upsert_items,
     upsert_material_requirements,
     upsert_weekly_summary,
+    weekly_summaries,
 )
 
 
@@ -59,7 +60,7 @@ def run_pipeline(
         if weekly_synthesis:
             week_start, week_end = last_complete_week_bounds()
             weekly_items = included_items_between(db, start_date=week_start, end_date=week_end)
-            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage)
+            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage, errors=errors)
             upsert_weekly_summary(
                 db,
                 week_start=week_start,
@@ -181,10 +182,11 @@ def rescore_archive(
         enrich_items(stale, config, token_usage=token_usage, limit=len(stale))
         upsert_items(db, rescored)
         after = sum(1 for item in rescored if item.status == "included")
+        errors: list[str] = []
         if weekly_synthesis:
             week_start, week_end = last_complete_week_bounds()
             weekly_items = included_items_between(db, start_date=week_start, end_date=week_end)
-            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage)
+            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage, errors=errors)
             upsert_weekly_summary(
                 db,
                 week_start=week_start,
@@ -200,6 +202,37 @@ def rescore_archive(
                 "included_after": after,
                 "reenriched": len(stale),
             },
+            errors=errors,
+            token_usage=token_usage,
+        )
+    return 0
+
+
+def resynthesize_archive(config_path: str = "targeting.yaml", db_path: str = "data/tracker.db") -> int:
+    """One-time maintenance: regenerate every stored weekly synthesis from that week's current
+    included items (e.g. after a rescore, or after weeks written by the fallback)."""
+    config = load_config(config_path)
+    token_usage: dict = {}
+    errors: list[str] = []
+    with connect(db_path) as db:
+        init_db(db)
+        weeks = [(row["week_start"], row["week_end"]) for row in weekly_summaries(db)]
+        for week_start, week_end in weeks:
+            weekly_items = included_items_between(db, start_date=week_start, end_date=week_end)
+            week_errors: list[str] = []
+            synthesis_md = synthesize_week(weekly_items, config, token_usage=token_usage, errors=week_errors)
+            errors.extend(f"{week_start}: {error}" for error in week_errors)
+            upsert_weekly_summary(
+                db,
+                week_start=week_start,
+                week_end=week_end,
+                synthesis_md=synthesis_md,
+                item_ids=[item["id"] for item in weekly_items],
+            )
+        log_run(
+            db,
+            counts={"resynthesized": len(weeks), "errors": len(errors)},
+            errors=errors,
             token_usage=token_usage,
         )
     return 0
@@ -211,9 +244,12 @@ def main() -> int:
     parser.add_argument("--db", default="data/tracker.db")
     parser.add_argument("--weekly-synthesis", action="store_true")
     parser.add_argument("--rescore-all", action="store_true", help="Re-score the whole archive against the current rubric")
+    parser.add_argument("--resynthesize-all", action="store_true", help="Regenerate every stored weekly synthesis")
     args = parser.parse_args()
     if args.rescore_all:
         return rescore_archive(config_path=args.config, db_path=args.db)
+    if args.resynthesize_all:
+        return resynthesize_archive(config_path=args.config, db_path=args.db)
     return run_pipeline(config_path=args.config, db_path=args.db, weekly_synthesis=args.weekly_synthesis)
 
 

@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      resynthesize_all:
+        description: "Regenerate every stored weekly synthesis (one-time maintenance)"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "0 15 * * 5"   # Fridays 15:00 UTC = 8:00 AM PDT — one weekly run, with synthesis
 
@@ -55,6 +60,8 @@ jobs:
         run: |
           if [ "${{ inputs.rescore_all }}" = "true" ]; then
             python pipeline/run.py --config targeting.yaml --db data/tracker.db --rescore-all
+          elif [ "${{ inputs.resynthesize_all }}" = "true" ]; then
+            python pipeline/run.py --config targeting.yaml --db data/tracker.db --resynthesize-all
           elif [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.weekly_synthesis }}" = "true" ]; then
             python pipeline/run.py --config targeting.yaml --db data/tracker.db --weekly-synthesis
           else

@@ -24,6 +24,7 @@ def synthesize_week(
     *,
     model_client: Any | None = None,
     token_usage: dict[str, Any] | None = None,
+    errors: list[str] | None = None,
 ) -> str:
     if not items:
         return "No included items for this week yet."
@@ -35,13 +36,16 @@ def synthesize_week(
     synth = config.get("synth", {})
     prompt = read_prompt(synth.get("prompt", "prompts/synth.md"))
     try:
+        # Long feed URLs make the markdown token-heavy; 1600 truncated weeks of ~18+ items.
         result, usage = client.complete_json(
             model=synth["model"],
             system_prompt=prompt,
             user_prompt=json.dumps([item_payload(item) for item in items], indent=2, sort_keys=True),
-            max_tokens=1600,
+            max_tokens=8000,
         )
-    except Exception:
+    except Exception as exc:
+        if errors is not None:
+            errors.append(f"synthesis: {exc}")
         return fallback_synthesis(items)
     add_token_usage(token_usage, "anthropic_synthesis", usage)
     return str(result.get("synthesis_md") or result.get("synthesis") or fallback_synthesis(items))
