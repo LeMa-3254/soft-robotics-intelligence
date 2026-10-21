@@ -1,9 +1,17 @@
+import inspect
+from types import SimpleNamespace
 import unittest
 
 from models import Item
 from pipeline.embeddings import embed_items
 from pipeline.enrich import enrich_items
-from pipeline.model_clients import add_token_usage, parse_json_object, resolve_embedding_provider, strip_code_fence
+from pipeline.model_clients import (
+    AnthropicModelClient,
+    add_token_usage,
+    parse_json_object,
+    resolve_embedding_provider,
+    strip_code_fence,
+)
 from pipeline.score import score_item
 
 
@@ -172,6 +180,34 @@ class ModelIntegrationTests(unittest.TestCase):
         add_token_usage(usage, "anthropic_scoring", {"input_tokens": 3})
 
         self.assertEqual(usage, {"anthropic_scoring": {"input_tokens": 5}})
+
+
+class AnthropicSdkCompatibilityTests(unittest.TestCase):
+    """Bind our request kwargs against the installed SDK's real signature. Every stage catches
+    model errors and falls back, so an SDK upgrade that drops a parameter (anthropic 1.x removed
+    `temperature`) otherwise fails silently instead of failing CI."""
+
+    def setUp(self):
+        try:
+            from anthropic.resources.messages import Messages
+        except ImportError:
+            self.skipTest("anthropic is not installed")
+        signature = inspect.signature(Messages.create)
+
+        def checked_create(**kwargs):
+            signature.bind(None, **kwargs)
+            return SimpleNamespace(content=[SimpleNamespace(text='{"ok": true}')], usage=None)
+
+        self.client = AnthropicModelClient(api_key="test")
+        self.client.client = SimpleNamespace(messages=SimpleNamespace(create=checked_create))
+
+    def test_complete_json_kwargs_match_installed_sdk(self):
+        result, _ = self.client.complete_json(model="m", system_prompt="s", user_prompt="u")
+        self.assertEqual(result, {"ok": True})
+
+    def test_search_json_kwargs_match_installed_sdk(self):
+        result, _ = self.client.search_json(model="m", system_prompt="s", user_prompt="u")
+        self.assertEqual(result, {"ok": True})
 
 
 if __name__ == "__main__":
